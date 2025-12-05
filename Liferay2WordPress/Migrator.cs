@@ -51,6 +51,9 @@ public class Migrator
         var authorMap = _config.GetSection("WordPress:AuthorMap").Get<Dictionary<long, int>>() ?? new();
         var templateMap = _config.GetSection("WordPress:TemplateMap").Get<Dictionary<string, string>>() ?? new();
 
+        // Mapping Liferay structure -> WordPress CPT endpoint (ACF JSON registered)
+        var cptMap = _config.GetSection("WordPress:CptMap").Get<Dictionary<string, string>>() ?? new();
+
         // Load folders for parent chain mapping
         var folders = await _foldersRepo.GetFoldersAsync(groupId, ct);
         var folderById = folders.ToDictionary(f => f.FolderId, f => f);
@@ -74,40 +77,77 @@ public class Migrator
             int? featured = null;
             if (converted.ImageUrls.Count > 0)
             {
-                var uploadRes = await _media.EnsureUploadedAsync(converted.ImageUrls, ct);
+                var uploadRes = await _media.EnsureUploadedAsync(converted.ImageUrls, liferayBase, ct);
                 featured = uploadRes.ids.FirstOrDefault();
             }
 
+            // Resolve CPT endpoint by Liferay structureId; fallback to default postType
+            var cptEndpoint = ResolveCptEndpoint(article.StructureId, cptMap);
+
+            // Map default categories/tags only when migrating to default posts/pages; for CPT use custom taxonomies
             int[]? wpCats = null;
-            if (article.Categories.Count > 0)
-            {
-                var ids = new List<int>();
-                foreach (var c in article.Categories)
-                {
-                    var id = await _wp.EnsureTermAsync("categories", c, ct);
-                    ids.Add(id);
-                }
-                wpCats = ids.ToArray();
-            }
-
             int[]? wpTags = null;
-            if (article.Tags.Count > 0)
-            {
-                var ids = new List<int>();
-                foreach (var t in article.Tags)
-                {
-                    var id = await _wp.EnsureTermAsync("tags", t, ct);
-                    ids.Add(id);
-                }
-                wpTags = ids.ToArray();
-            }
-
-            // Custom categories for pages (e.g., folder hierarchy -> taxonomy "page_category")
             var extraTax = new Dictionary<string, int[]>();
-            var pageCats = await EnsurePageCategoriesAsync(article.FolderId, folderById, ct);
-            if (pageCats.Length > 0)
+
+            if (string.IsNullOrWhiteSpace(cptEndpoint) || cptEndpoint.Equals("posts", StringComparison.OrdinalIgnoreCase) || cptEndpoint.Equals("pages", StringComparison.OrdinalIgnoreCase))
             {
-                extraTax["page_category"] = pageCats;
+                if (article.Categories.Count > 0)
+                {
+                    var ids = new List<int>();
+                    foreach (var c in article.Categories)
+                    {
+                        var id = await _wp.EnsureTermAsync("categories", c, ct);
+                        ids.Add(id);
+                    }
+                    wpCats = ids.ToArray();
+                }
+
+                if (article.Tags.Count > 0)
+                {
+                    var ids = new List<int>();
+                    foreach (var t in article.Tags)
+                    {
+                        var id = await _wp.EnsureTermAsync("tags", t, ct);
+                        ids.Add(id);
+                    }
+                    wpTags = ids.ToArray();
+                }
+
+                // Custom categories for pages (e.g., folder hierarchy -> taxonomy "page_category")
+                var pageCats = await EnsurePageCategoriesAsync(article.FolderId, folderById, ct);
+                if (pageCats.Length > 0)
+                {
+                    extraTax["page_category"] = pageCats;
+                }
+            }
+            else
+            {
+                // CPT-specific taxonomies registered by ACF JSON: taxonomy_{slug}_category and taxonomy_{slug}_tag
+                var slug = SlugHelper.ToSlug(article.StructureId ?? string.Empty);
+                var taxCategory = $"taxonomy_{slug}_category";
+                var taxTag = $"taxonomy_{slug}_tag";
+
+                if (article.Categories.Count > 0)
+                {
+                    var ids = new List<int>();
+                    foreach (var c in article.Categories)
+                    {
+                        var id = await _wp.EnsureTermAsync(taxCategory, c, ct);
+                        ids.Add(id);
+                    }
+                    extraTax[taxCategory] = ids.ToArray();
+                }
+
+                if (article.Tags.Count > 0)
+                {
+                    var ids = new List<int>();
+                    foreach (var t in article.Tags)
+                    {
+                        var id = await _wp.EnsureTermAsync(taxTag, t, ct);
+                        ids.Add(id);
+                    }
+                    extraTax[taxTag] = ids.ToArray();
+                }
             }
 
             int? authorId = null;
@@ -121,6 +161,9 @@ public class Migrator
                 try
                 {
                     authorId = await _wp.EnsureUserAsync(screenName, email, fullName, "author", ct);
+
+                    if (authorId.HasValue)
+                        authorMap.Add(article.UserId, authorId.Value);
                 }
                 catch (Exception ex)
                 {
@@ -128,12 +171,16 @@ public class Migrator
                 }
             }
 
-            // Advanced slug rewriting: prefer UrlTitle, else from Title; ensure uniqueness
+            // Advanced slug rewriting: prefer UrlTitle, else from Title; ensure uniqueness per endpoint
             var desiredSlug = !string.IsNullOrWhiteSpace(article.UrlTitle) ? article.UrlTitle! : SlugHelper.ToSlug(article.Title);
-            var uniqueSlug = await EnsureUniqueSlugAsync(desiredSlug, ct);
+            var uniqueSlug = await EnsureUniqueSlugAsync(cptEndpoint, desiredSlug, ct);
 
-            // Resolve parent by folder chain: parent slug is the closest ancestor with a created page
-            int? parentId = await ResolveParentAsync(article.FolderId, folderById, createdPages, ct);
+            // Resolve parent by folder chain: only applicable for hierarchical types (pages). For CPT assume flat unless configured.
+            int? parentId = null;
+            if (string.IsNullOrWhiteSpace(cptEndpoint) || cptEndpoint.Equals("pages", StringComparison.OrdinalIgnoreCase))
+            {
+                parentId = await ResolveParentAsync(article.FolderId, folderById, createdPages, ct);
+            }
 
             string? wpTemplate = null;
             if (!string.IsNullOrWhiteSpace(article.TemplateId))
@@ -157,7 +204,16 @@ public class Migrator
                 Template = wpTemplate
             };
 
-            var created = await _wp.CreatePostAsync(post, extraTax.Count == 0 ? null : extraTax, ct);
+            Models.WordPressPostResponse created;
+            if (string.IsNullOrWhiteSpace(cptEndpoint))
+            {
+                created = await _wp.CreatePostAsync(post, extraTax.Count == 0 ? null : extraTax, ct);
+            }
+            else
+            {
+                created = await _wp.CreatePostAsync(cptEndpoint, post, extraTax.Count == 0 ? null : extraTax, ct);
+            }
+
             createdPages[uniqueSlug] = created.Id;
             state.CompletedArticleIds.Add(article.ArticleId);
 
@@ -206,17 +262,24 @@ public class Migrator
         }
     }
 
-    private async Task<string> EnsureUniqueSlugAsync(string desiredSlug, CancellationToken ct)
+    private async Task<string> EnsureUniqueSlugAsync(string? cptEndpoint, string desiredSlug, CancellationToken ct)
     {
         var slug = SlugHelper.ToSlug(desiredSlug);
         if (string.IsNullOrWhiteSpace(slug)) slug = "pagina";
-        if (!await _wp.ExistsBySlugAsync(slug, ct)) return slug;
+        bool exists = string.IsNullOrWhiteSpace(cptEndpoint)
+            ? await _wp.ExistsBySlugAsync(slug, ct)
+            : await _wp.ExistsBySlugAsync(cptEndpoint!, slug, ct);
+        if (!exists) return slug;
         int i = 2;
-        while (await _wp.ExistsBySlugAsync($"{slug}-{i}", ct))
+        while (true)
         {
+            var candidate = $"{slug}-{i}";
+            bool candidateExists = string.IsNullOrWhiteSpace(cptEndpoint)
+                ? await _wp.ExistsBySlugAsync(candidate, ct)
+                : await _wp.ExistsBySlugAsync(cptEndpoint!, candidate, ct);
+            if (!candidateExists) return candidate;
             i++;
         }
-        return $"{slug}-{i}";
     }
 
     private async Task<int[]> EnsurePageCategoriesAsync(long? folderId, Dictionary<long, Models.LiferayFolder> folderById, CancellationToken ct)
@@ -241,5 +304,21 @@ public class Migrator
             ids.Add(id);
         }
         return ids.ToArray();
+    }
+
+    private static string? ResolveCptEndpoint(string? liferayStructureId, Dictionary<string, string> cptMap)
+    {
+        if (string.IsNullOrWhiteSpace(liferayStructureId)) return null;
+        // Match by exact key or normalized
+        if (cptMap.TryGetValue(liferayStructureId, out var endpoint) && !string.IsNullOrWhiteSpace(endpoint))
+        {
+            return endpoint;
+        }
+        var normalized = liferayStructureId.ToUpperInvariant().Replace("-", "_");
+        if (cptMap.TryGetValue(normalized, out var endpointNorm) && !string.IsNullOrWhiteSpace(endpointNorm))
+        {
+            return endpointNorm;
+        }
+        return null;
     }
 }

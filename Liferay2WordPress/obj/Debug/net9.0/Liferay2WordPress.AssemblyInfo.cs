@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Liferay2WordPress")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e90bf371919e5189d889f6efb92ad37d6f5ef1e9")]
 [assembly: System.Reflection.AssemblyProductAttribute("Liferay2WordPress")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Liferay2WordPress")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

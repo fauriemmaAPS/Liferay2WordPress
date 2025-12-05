@@ -11,10 +11,16 @@ public interface IWordPressClient
 {
     Task<Models.WordPressPostResponse> CreatePostAsync(Models.WordPressPost post, Dictionary<string, int[]>? extraTaxonomies, CancellationToken ct);
     Task<Models.WordPressPostResponse> CreatePostAsync(Models.WordPressPost post, CancellationToken ct) => CreatePostAsync(post, null, ct);
+    // New: explicit post type endpoint overrides
+    Task<Models.WordPressPostResponse> CreatePostAsync(string postTypeEndpoint, Models.WordPressPost post, Dictionary<string, int[]>? extraTaxonomies, CancellationToken ct);
+    Task<Models.WordPressPostResponse> CreatePostAsync(string postTypeEndpoint, Models.WordPressPost post, CancellationToken ct) => CreatePostAsync(postTypeEndpoint, post, null, ct);
+
     Task<Models.WordPressMediaResponse> UploadMediaAsync(string fileName, byte[] bytes, string contentType, CancellationToken ct);
     Task<int> EnsureTermAsync(string taxonomy, string name, CancellationToken ct);
     Task<int> EnsureUserAsync(string username, string email, string displayName, string role, CancellationToken ct);
     Task<bool> ExistsBySlugAsync(string slug, CancellationToken ct);
+    // New: check slug existence for specific CPT endpoint
+    Task<bool> ExistsBySlugAsync(string postTypeEndpoint, string slug, CancellationToken ct);
 }
 
 public class WordPressClient : IWordPressClient
@@ -58,6 +64,33 @@ public class WordPressClient : IWordPressClient
         var json = await response.Content.ReadAsStringAsync(ct);
         var res = JsonSerializer.Deserialize<Models.WordPressPostResponse>(json) ?? throw new InvalidOperationException("Invalid WP response");
         _logger.LogInformation("Created WP {Type} {Id} {Link}", _postType.TrimEnd('s'), res.Id, res.Link);
+        return res;
+    }
+
+    // New: Create post for specific CPT endpoint
+    public async Task<Models.WordPressPostResponse> CreatePostAsync(string postTypeEndpoint, Models.WordPressPost post, Dictionary<string, int[]>? extraTaxonomies, CancellationToken ct)
+    {
+        var node = JsonSerializer.SerializeToNode(post) as JsonObject ?? new JsonObject();
+        if (extraTaxonomies != null)
+        {
+            foreach (var kvp in extraTaxonomies)
+            {
+                node[kvp.Key] = JsonSerializer.SerializeToNode(kvp.Value);
+            }
+        }
+        var payload = node.ToJsonString();
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        var retry = Policy.Handle<HttpRequestException>()
+            .OrResult<HttpResponseMessage>(r => (int)r.StatusCode >= 500 || r.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            .WaitAndRetryAsync(3, i => TimeSpan.FromSeconds(Math.Pow(2, i)));
+
+        var target = string.IsNullOrWhiteSpace(postTypeEndpoint) ? _postType : postTypeEndpoint;
+        var response = await retry.ExecuteAsync(() => _http.PostAsync($"/wp-json/wp/v2/{target}", content, ct));
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var res = JsonSerializer.Deserialize<Models.WordPressPostResponse>(json) ?? throw new InvalidOperationException("Invalid WP response");
+        _logger.LogInformation("Created WP {Type} {Id} {Link}", target.TrimEnd('s'), res.Id, res.Link);
         return res;
     }
 
@@ -160,7 +193,7 @@ public class WordPressClient : IWordPressClient
     public async Task<int> EnsureUserAsync(string username, string email, string displayName, string role, CancellationToken ct)
     {
         var q = Uri.EscapeDataString(email);
-        var getResp = await _http.GetAsync($"/wp-json/wp/v2/users?search={q}", ct);
+        var getResp = await _http.GetAsync($"/wp-json/wp/v2/users?search={q}&context=edit", ct);
         if (getResp.IsSuccessStatusCode)
         {
             var json = await getResp.Content.ReadAsStringAsync(ct);
@@ -197,6 +230,17 @@ public class WordPressClient : IWordPressClient
     public async Task<bool> ExistsBySlugAsync(string slug, CancellationToken ct)
     {
         var resp = await _http.GetAsync($"/wp-json/wp/v2/{_postType}?slug={Uri.EscapeDataString(slug)}&per_page=1", ct);
+        if (!resp.IsSuccessStatusCode) return false;
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0;
+    }
+
+    // New: Exists by slug for specific CPT endpoint
+    public async Task<bool> ExistsBySlugAsync(string postTypeEndpoint, string slug, CancellationToken ct)
+    {
+        var target = string.IsNullOrWhiteSpace(postTypeEndpoint) ? _postType : postTypeEndpoint;
+        var resp = await _http.GetAsync($"/wp-json/wp/v2/{target}?slug={Uri.EscapeDataString(slug)}&per_page=1", ct);
         if (!resp.IsSuccessStatusCode) return false;
         var json = await resp.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(json);

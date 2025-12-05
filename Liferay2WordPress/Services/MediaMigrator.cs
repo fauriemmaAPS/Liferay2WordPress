@@ -6,7 +6,7 @@ namespace Liferay2WordPress.Services;
 
 public interface IMediaMigrator
 {
-    Task<(Dictionary<string, (int id, string url)> map, List<int> ids)> EnsureUploadedAsync(IEnumerable<string> urls, CancellationToken ct);
+    Task<(Dictionary<string, (int id, string url)> map, List<int> ids)> EnsureUploadedAsync(IEnumerable<string> urls, string liferayBaseUrl, CancellationToken ct);
     Task<(string html, List<int> mediaIds)> RewriteLiferayDocumentLinksAsync(string html, string liferayBaseUrl, CancellationToken ct);
 }
 
@@ -25,12 +25,28 @@ public class MediaMigrator : IMediaMigrator
         _logger = logger;
     }
 
-    public async Task<(Dictionary<string, (int id, string url)> map, List<int> ids)> EnsureUploadedAsync(IEnumerable<string> urls, CancellationToken ct)
+    public async Task<(Dictionary<string, (int id, string url)> map, List<int> ids)> EnsureUploadedAsync(IEnumerable<string> urls, string? liferayBaseUrl, CancellationToken ct)
     {
         var result = new Dictionary<string, (int id, string url)>(StringComparer.OrdinalIgnoreCase);
         var ids = new List<int>();
 
         var client = _httpFactory.CreateClient("media");
+
+        // Imposta il BaseAddress se fornito (necessario per supportare URL relativi)
+        if (!string.IsNullOrWhiteSpace(liferayBaseUrl))
+        {
+            try
+            {
+                // Garantisce lo slash finale per risoluzione corretta degli URL relativi
+                var baseUri = new Uri(liferayBaseUrl.TrimEnd('/') + "/");
+                client.BaseAddress = baseUri;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Base URL non valido: {BaseUrl}", liferayBaseUrl);
+            }
+        }
+
         foreach (var u in urls.Where(u => !string.IsNullOrWhiteSpace(u)))
         {
             if (_cache.TryGetValue(u, out var cached))
@@ -40,9 +56,16 @@ public class MediaMigrator : IMediaMigrator
                 continue;
             }
 
+            // Se l'URL è relativo e non c'è BaseAddress, prova a normalizzarlo con il liferayBaseUrl
+            var requestUrl = u;
+            if (!Uri.TryCreate(u, UriKind.Absolute, out _) && client.BaseAddress == null && !string.IsNullOrWhiteSpace(liferayBaseUrl))
+            {
+                requestUrl = NormalizeUrl(u, liferayBaseUrl!);
+            }
+
             try
             {
-                using var resp = await client.GetAsync(u, ct);
+                using var resp = await client.GetAsync(requestUrl, ct);
                 resp.EnsureSuccessStatusCode();
                 var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
                 
@@ -52,10 +75,10 @@ public class MediaMigrator : IMediaMigrator
                 // Se non rilevato, usa Content-Type header o guess dall'URL
                 if (mimeType == "application/octet-stream")
                 {
-                    mimeType = resp.Content.Headers.ContentType?.MediaType ?? GuessMimeTypeFromUrl(u);
+                    mimeType = resp.Content.Headers.ContentType?.MediaType ?? GuessMimeTypeFromUrl(requestUrl);
                 }
                 
-                var fileName = GetFileNameFromUrl(u);
+                var fileName = GetFileNameFromUrl(requestUrl);
                 
                 // Aggiungi estensione se manca
                 if (!System.IO.Path.HasExtension(fileName))
@@ -130,9 +153,9 @@ public class MediaMigrator : IMediaMigrator
             _logger.LogDebug("  Original: {Original} -> Normalized: {Normalized}", kvp.Key, kvp.Value);
         }
 
-        // Upload usando gli URL normalizzati
+        // Upload usando gli URL normalizzati, fornendo il baseUrl per eventuali URL relativi
         var normalizedUrls = urlMappings.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var upload = await EnsureUploadedAsync(normalizedUrls, ct);
+        var upload = await EnsureUploadedAsync(normalizedUrls, liferayBaseUrl, ct);
         
         var updated = html;
         
@@ -156,7 +179,7 @@ public class MediaMigrator : IMediaMigrator
                     RegexOptions.IgnoreCase
                 );
                 
-                _logger.LogInformation("Rewritten {Original} -> {WordPress}", originalUrl, wordpressUrl);
+                _logger.LogInformation("Rewritten {Original} -> {WordPress}", normalizedUrl, wordpressUrl);
             }
         }
         
@@ -420,14 +443,18 @@ public class MediaMigrator : IMediaMigrator
 
     private static string GetFileNameFromUrl(string url)
     {
-        try
+        // ricavo il fileName dall'URL considerando il seguente pattern: http(s)://.../path/fileName/fileId?query
+        // esempio di url: https://www.cittametropolitana.na.it/documents/10181/0/Carpooling-aziendale.jpg/ee03cd4c-aceb-4cdb-a5a6-21aebd44dd3f?version=1.0&download=true
+
+        var uri = new Uri(url);
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length >= 2)
         {
-            var uri = new Uri(url);
-            var name = System.IO.Path.GetFileName(uri.LocalPath);
-            if (string.IsNullOrWhiteSpace(name)) name = "media";
-            return name;
+            // Prendo il penultimo segmento come nome file
+            return segments[^2];
         }
-        catch { return "media"; }
+
+        return "media"; // fallback generico
     }
 
     private static string GuessMimeTypeFromUrl(string url)

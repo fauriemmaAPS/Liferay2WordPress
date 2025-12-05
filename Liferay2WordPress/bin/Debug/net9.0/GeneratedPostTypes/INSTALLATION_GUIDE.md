@@ -1,7 +1,7 @@
 # WordPress Custom Post Types Installation Guide
 
 **Generation Mode:** `ACF_JSON`
-**Generated on:** 2025-12-04 16:14:59
+**Generated on:** 2025-12-05 11:02:39
 **Total structures:** 99
 
 ## 🎯 ACF JSON Mode
@@ -735,4 +735,113 @@ Custom Post Types are organized under parent menus based on their Liferay classN
 - **Fields:** 7
 - **Parent Menu:** CMN - Contenuti
 - **ClassNameId:** 10109
+
+## appsettings.json - CptMap
+
+Inserisci la mappa seguente in `WordPress:CptMap`:
+
+"WordPress": {
+  "CptMap": {
+    "45411": "post_type_45411",
+    "17193": "post_type_17193",
+    "604250": "post_type_604250",
+    "23891": "post_type_23891",
+    "79755": "post_type_79755",
+    "12601": "post_type_12601",
+    "5563458": "post_type_5563458",
+    "76360": "post_type_76360",
+    "156607": "post_type_156607",
+    "45037": "post_type_45037",
+    "1017697": "post_type_1017697",
+    "1012239": "post_type_1012239",
+    "29731": "post_type_29731",
+    "14714559": "post_type_14714559",
+    "5563290": "post_type_5563290",
+    "140355": "post_type_140355",
+    "1399203": "post_type_1399203",
+    "23611": "post_type_23611",
+    "28641": "post_type_28641",
+    "12765579": "post_type_12765579",
+    "CONTACTS": "post_type_contacts",
+    "37395": "post_type_37395",
+    "5659945": "post_type_5659945",
+    "31819": "post_type_31819",
+    "5668314": "post_type_5668314",
+    "141816": "post_type_141816",
+    "1656527": "post_type_1656527",
+    "76954": "post_type_76954",
+    "975443": "post_type_975443",
+    "1971713": "post_type_1971713",
+    "158027": "post_type_158027",
+    "154245": "post_type_154245",
+    "EVENTS": "post_type_events",
+    "77350": "post_type_77350",
+    "109933": "post_type_109933",
+    "137899": "post_type_137899",
+    "227398": "post_type_227398",
+    "139310": "post_type_139310",
+    "INVENTORY": "post_type_inventory",
+    "79850": "post_type_79850",
+    "79895": "post_type_79895",
+    "79917": "post_type_79917",
+    "79927": "post_type_79927",
+    "ISSUES TRACKING": "post_type_issues_tracking",
+    "5563344": "post_type_5563344",
+    "MEETING MINUTES": "post_type_meeting_minutes",
+    "8794282": "post_type_8794282",
+    "38592": "post_type_38592",
+    "819356": "post_type_819356",
+    "34496": "post_type_34496",
+    "3438606": "post_type_3438606",
+    "3433649": "post_type_3433649",
+    "1005793": "post_type_1005793",
+    "12714": "post_type_12714",
+    "2712079": "post_type_2712079",
+    "3680950": "post_type_3680950",
+    "38925": "post_type_38925",
+    "2247234": "post_type_2247234",
+    "3497805": "post_type_3497805",
+    "3499767": "post_type_3499767",
+    "10154040": "post_type_10154040",
+    "10220251": "post_type_10220251",
+    "4325270": "post_type_4325270",
+    "5129177": "post_type_5129177",
+    "6586964": "post_type_6586964",
+    "6607672": "post_type_6607672",
+    "6607674": "post_type_6607674",
+    "6607676": "post_type_6607676",
+    "6607678": "post_type_6607678",
+    "6607680": "post_type_6607680",
+    "3108817": "post_type_3108817",
+    "211617": "post_type_211617",
+    "12619": "post_type_12619",
+    "3660056": "post_type_3660056",
+    "1722811": "post_type_1722811",
+    "80249": "post_type_80249",
+    "1970671": "post_type_1970671",
+    "12588": "post_type_12588",
+    "38174": "post_type_38174",
+    "1654308": "post_type_1654308",
+    "12569": "post_type_12569",
+    "5671899": "post_type_5671899",
+    "158211": "post_type_158211",
+    "8014255": "post_type_8014255",
+    "1732111": "post_type_1732111",
+    "23753": "post_type_23753",
+    "979058": "post_type_979058",
+    "1074220": "post_type_1074220",
+    "1243107": "post_type_1243107",
+    "1261149": "post_type_1261149",
+    "93059": "post_type_93059",
+    "8071192": "post_type_8071192",
+    "1338406": "post_type_1338406",
+    "5563439": "post_type_5563439",
+    "TO DO": "post_type_to_do",
+    "23939": "post_type_23939",
+    "5563349": "post_type_5563349",
+    "28931": "post_type_28931",
+    "1480743": "post_type_1480743"
+  }
+}
+
 

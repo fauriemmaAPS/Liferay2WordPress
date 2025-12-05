@@ -158,6 +158,9 @@ public class CustomPostTypeGenerator : ICustomPostTypeGenerator
         // Genera file master di installazione
         await GenerateMasterInstallScriptAsync(structures, ct);
 
+        // Genera snippet configurazione CptMap per appsettings.json
+        await GenerateCptMapConfigAsync(structures, ct);
+
         _logger.LogInformation("✓ Generation complete! Files saved to: {Path}", Path.GetFullPath(_outputPath));
         _logger.LogInformation("");
         _logger.LogInformation("Next steps:");
@@ -441,8 +444,8 @@ public class CustomPostTypeGenerator : ICustomPostTypeGenerator
             ["show_in_admin_bar"] = true,
             ["show_in_nav_menus"] = true,
             ["show_in_rest"] = true,
-            ["rest_base"] = 45411,
-            ["rest_namespace"] = "wp\\/v2",
+            ["rest_base"] = $"post_type_{slug}",
+            ["rest_namespace"] = "", // "wp\\/v2",
             ["rest_controller_class"] = "WP_REST_Posts_Controller",
             ["menu_position"] = menuPosition,
             ["menu_icon"] = new Dictionary<string, string>
@@ -574,8 +577,8 @@ public class CustomPostTypeGenerator : ICustomPostTypeGenerator
             ["show_in_menu"] = 1,
             ["show_in_nav_menus"] = 1,
             ["show_in_rest"] = 1,
-            ["rest_base"] = taxonomySlug,
-            ["rest_namespace"] = "wp\\/v2",
+            ["rest_base"] = $"taxonomy_{taxonomySlug}",
+            ["rest_namespace"] = "", // "wp\\/v2",
             ["rest_controller_class"] = "WP_REST_Terms_Controller",
             ["show_tagcloud"] = isHierarchical ? 0 : 1,
             ["show_in_quick_edit"] = 1,
@@ -890,6 +893,28 @@ public class CustomPostTypeGenerator : ICustomPostTypeGenerator
             sb.AppendLine();
         }
 
+        // Appsettings snippet for CptMap
+        var cptMap = structures.ToDictionary(s => s.StructureKey, s => $"post_type_{SanitizeSlug(s.StructureKey)}");
+        var appsettingsSnippet = new StringBuilder();
+        appsettingsSnippet.AppendLine("## appsettings.json - CptMap");
+        appsettingsSnippet.AppendLine();
+        appsettingsSnippet.AppendLine("Inserisci la mappa seguente in `WordPress:CptMap`:");
+        appsettingsSnippet.AppendLine();
+        appsettingsSnippet.AppendLine("\"WordPress\": {");
+        appsettingsSnippet.AppendLine("  \"CptMap\": {");
+        int count = 0;
+        foreach (var kv in cptMap)
+        {
+            count++;
+            var comma = count < cptMap.Count ? "," : "";
+            appsettingsSnippet.AppendLine($"    \"{kv.Key}\": \"{kv.Value}\"{comma}");
+        }
+        appsettingsSnippet.AppendLine("  }");
+        appsettingsSnippet.AppendLine("}");
+        appsettingsSnippet.AppendLine();
+
+        sb.AppendLine(appsettingsSnippet.ToString());
+
         var masterReadme = Path.Combine(_outputPath, "INSTALLATION_GUIDE.md");
         await File.WriteAllTextAsync(masterReadme, sb.ToString(), ct);
 
@@ -1044,6 +1069,24 @@ public class CustomPostTypeGenerator : ICustomPostTypeGenerator
         await File.WriteAllTextAsync(pluginTemplate, sb.ToString(), ct);
     }
 
+    private async Task GenerateCptMapConfigAsync(List<DDMStructure> structures, CancellationToken ct)
+    {
+        // Crea un file JSON pronto da incollare in appsettings.json
+        var map = structures.ToDictionary(s => s.StructureKey, s => $"post_type_{SanitizeSlug(s.StructureKey)}");
+        var wrapper = new Dictionary<string, object>
+        {
+            ["WordPress"] = new Dictionary<string, object>
+            {
+                ["CptMap"] = map
+            }
+        };
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        var json = JsonSerializer.Serialize(wrapper, options);
+        var path = Path.Combine(_outputPath, "appsettings.cptmap.json");
+        await File.WriteAllTextAsync(path, json, ct);
+        _logger.LogInformation("  ✓ CptMap config generated: {File}", path);
+    }
+
     /// <summary>
     /// Crea una versione plurale semplificata del nome
     /// </summary>
@@ -1140,6 +1183,6 @@ public class CustomPostTypeGenerator : ICustomPostTypeGenerator
 
     private static string SanitizeFileName(string input)
     {
-        return string.Join("_", input.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_").Replace("\'", "_").Replace(".", "_");
+        return string.Join("_", input.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_").Replace("'", "_").Replace(".", "_");
     }
 }

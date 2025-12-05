@@ -40,3 +40,4 @@ E:\Projects\Liferay2WordPress\Liferay2WordPress\obj\Debug\net9.0\Liferay2WordPre
 E:\Projects\Liferay2WordPress\Liferay2WordPress\obj\Debug\net9.0\Liferay2WordPress.genruntimeconfig.cache
 E:\Projects\Liferay2WordPress\Liferay2WordPress\obj\Debug\net9.0\ref\Liferay2WordPress.dll
 E:\Projects\Liferay2WordPress\Liferay2WordPress\bin\Debug\net9.0\appsettings.json
+E:\Projects\Liferay2WordPress\Liferay2WordPress\obj\Debug\net9.0\Liferay2WordPress.sourcelink.json
